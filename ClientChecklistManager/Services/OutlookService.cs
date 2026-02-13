@@ -4,6 +4,20 @@ namespace ClientChecklistManager.Services;
 
 public class OutlookService
 {
+    [DllImport("oleaut32.dll", PreserveSig = false)]
+    private static extern void GetActiveObject(
+        ref Guid rclsid,
+        nint pvReserved,
+        [MarshalAs(UnmanagedType.IUnknown)] out object ppunk);
+
+    private static object GetActiveObject(string progId)
+    {
+        var clsid = Type.GetTypeFromProgID(progId)?.GUID
+            ?? throw new COMException($"ProgID '{progId}' not found.");
+        GetActiveObject(ref clsid, nint.Zero, out var obj);
+        return obj;
+    }
+
     /// <summary>
     /// Sends an email via the locally installed Outlook application using COM Interop.
     /// </summary>
@@ -15,7 +29,7 @@ public class OutlookService
             // Try to get running Outlook instance first
             try
             {
-                outlookApp = Marshal.GetActiveObject("Outlook.Application");
+                outlookApp = GetActiveObject("Outlook.Application");
             }
             catch (COMException)
             {
