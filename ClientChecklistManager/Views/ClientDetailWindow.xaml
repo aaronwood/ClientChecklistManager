@@ -1,0 +1,311 @@
+<Window x:Class="ClientChecklistManager.Views.ClientDetailWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="{Binding Name, StringFormat='Client: {0}'}"
+        Height="720" Width="880"
+        MinHeight="550" MinWidth="650"
+        WindowStartupLocation="CenterOwner"
+        Background="White"
+        Closing="Window_Closing">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Header with client info -->
+        <Border Grid.Row="0" Background="{StaticResource PrimaryBrush}" Padding="20,14">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="{Binding Name}" Foreground="White" FontSize="18" FontWeight="SemiBold" />
+                    <TextBlock Foreground="#BBDEFB" FontSize="12" Margin="0,2,0,0">
+                        <Run Text="ID:" />
+                        <Run Text="{Binding ClientId, Mode=OneWay}" />
+                        <Run Text="  |  " />
+                        <Run Text="{Binding Email, Mode=OneWay}" />
+                    </TextBlock>
+                </StackPanel>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right">
+                    <TextBlock Foreground="#BBDEFB" FontSize="11" Text="Last Emailed" />
+                    <TextBlock Foreground="White" FontSize="13" FontWeight="SemiBold"
+                               Text="{Binding LastEmailed, Converter={StaticResource DateTimeFormat}}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Client edit fields -->
+        <Border Grid.Row="1" Padding="20,12" Background="{StaticResource LightGrayBrush}"
+                BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="12" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="12" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="20" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Client ID" FontSize="11"
+                           Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,3" />
+                <TextBox Grid.Row="1" Grid.Column="0" Style="{StaticResource StyledTextBox}"
+                         Text="{Binding ClientId, UpdateSourceTrigger=PropertyChanged}" />
+
+                <TextBlock Grid.Row="0" Grid.Column="2" Text="Name" FontSize="11"
+                           Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,3" />
+                <TextBox Grid.Row="1" Grid.Column="2" Style="{StaticResource StyledTextBox}"
+                         Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" />
+
+                <TextBlock Grid.Row="0" Grid.Column="4" Text="Email" FontSize="11"
+                           Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,3" />
+                <TextBox Grid.Row="1" Grid.Column="4" Style="{StaticResource StyledTextBox}"
+                         Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}" />
+
+                <Button Grid.Row="1" Grid.Column="6" Content="Delete Client"
+                        Style="{StaticResource DangerButton}"
+                        Command="{Binding DeleteClientCommand}" />
+            </Grid>
+        </Border>
+
+        <!-- Main content: Checklist + Email panel -->
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="280" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Checklist Panel -->
+            <DockPanel Grid.Column="0" Margin="20,12,10,12">
+                <!-- Checklist header + stats -->
+                <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center">
+                        <Run Text="Checklist" />
+                        <Run Text="{Binding TotalCount, StringFormat=' ({0} items)', Mode=OneWay}"
+                             Foreground="{StaticResource TextSecondaryBrush}" FontWeight="Normal" FontSize="13" />
+                    </TextBlock>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <Border Background="#FEE2E2" CornerRadius="10" Padding="10,4" Margin="0,0,6,0">
+                            <TextBlock FontSize="11" Foreground="#991B1B">
+                                <Run Text="{Binding OutstandingCount, Mode=OneWay}" />
+                                <Run Text="outstanding" />
+                            </TextBlock>
+                        </Border>
+                        <Border Background="#D1FAE5" CornerRadius="10" Padding="10,4">
+                            <TextBlock FontSize="11" Foreground="#065F46">
+                                <Run Text="{Binding ReceivedCount, Mode=OneWay}" />
+                                <Run Text="received" />
+                            </TextBlock>
+                        </Border>
+                    </StackPanel>
+                </Grid>
+
+                <!-- Add new item -->
+                <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox Grid.Column="0" Style="{StaticResource StyledTextBox}"
+                             Text="{Binding NewItemDescription, UpdateSourceTrigger=PropertyChanged}"
+                             KeyDown="NewItem_KeyDown" />
+                    <TextBlock Grid.Column="0" Text="Type item description and press Enter..."
+                               Foreground="#9CA3AF" FontSize="13" Margin="12,0,0,0"
+                               VerticalAlignment="Center" IsHitTestVisible="False">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding NewItemDescription}" Value="">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                    <Button Grid.Column="1" Content="Add" Margin="8,0,0,0"
+                            Style="{StaticResource PrimaryButton}"
+                            Command="{Binding AddItemCommand}" />
+                </Grid>
+
+                <!-- Items list -->
+                <ListView ItemsSource="{Binding ChecklistItems}"
+                          BorderThickness="1"
+                          BorderBrush="{StaticResource BorderBrush}"
+                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                          VirtualizingPanel.IsVirtualizing="True">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Margin" Value="0" />
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListViewItem">
+                                        <Border Padding="10,8"
+                                                BorderBrush="{StaticResource BorderBrush}"
+                                                BorderThickness="0,0,0,1"
+                                                Background="{TemplateBinding Background}">
+                                            <ContentPresenter />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter Property="Background" Value="#F9FAFB" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListView.ItemContainerStyle>
+
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <!-- Checkbox -->
+                                <CheckBox Grid.Column="0" Grid.RowSpan="2"
+                                          IsChecked="{Binding IsReceived}"
+                                          VerticalAlignment="Center" Margin="0,0,10,0" />
+
+                                <!-- Description -->
+                                <TextBox Grid.Column="1" Grid.Row="0"
+                                         Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}"
+                                         BorderThickness="0" Background="Transparent"
+                                         FontSize="13" Padding="2"
+                                         VerticalAlignment="Center" />
+
+                                <!-- Received date -->
+                                <TextBlock Grid.Column="2" Grid.Row="0"
+                                           Text="{Binding ReceivedDateDisplay}"
+                                           Foreground="#059669" FontSize="11"
+                                           VerticalAlignment="Center" Margin="8,0" />
+
+                                <!-- Delete button -->
+                                <Button Grid.Column="3" Grid.Row="0"
+                                        Content="X" FontSize="11" Foreground="#9CA3AF"
+                                        Background="Transparent" BorderThickness="0"
+                                        Cursor="Hand" Padding="6,2"
+                                        Command="{Binding DataContext.DeleteItemCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        CommandParameter="{Binding}" />
+
+                                <!-- Notes -->
+                                <TextBox Grid.Column="1" Grid.Row="1" Grid.ColumnSpan="3"
+                                         Text="{Binding Notes, UpdateSourceTrigger=PropertyChanged}"
+                                         BorderThickness="0" Background="Transparent"
+                                         Foreground="{StaticResource TextSecondaryBrush}"
+                                         FontSize="11" Padding="2,0"
+                                         Margin="0,2,0,0" />
+                                <TextBlock Grid.Column="1" Grid.Row="1" Grid.ColumnSpan="3"
+                                           Text="Add notes..."
+                                           Foreground="#D1D5DB" FontSize="11"
+                                           Margin="4,2,0,0"
+                                           IsHitTestVisible="False">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Notes}" Value="">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </DockPanel>
+
+            <!-- Right panel: Email actions + history -->
+            <Border Grid.Column="1" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1,0,0,0">
+                <DockPanel Margin="14,12">
+                    <TextBlock DockPanel.Dock="Top" Text="Email" FontSize="15" FontWeight="SemiBold"
+                               Margin="0,0,0,10" />
+
+                    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,14">
+                        <Button Content="Send Outstanding Items"
+                                Style="{StaticResource PrimaryButton}"
+                                Command="{Binding SendEmailCommand}"
+                                HorizontalAlignment="Stretch" Margin="0,0,0,6" />
+                        <Button Content="Preview in Outlook"
+                                Style="{StaticResource SecondaryButton}"
+                                Command="{Binding PreviewEmailCommand}"
+                                HorizontalAlignment="Stretch" />
+                    </StackPanel>
+
+                    <TextBlock DockPanel.Dock="Top" Text="Email History" FontSize="13" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,8" />
+
+                    <ListView ItemsSource="{Binding EmailLogs}"
+                              BorderThickness="1"
+                              BorderBrush="{StaticResource BorderBrush}"
+                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                <Setter Property="Padding" Value="0" />
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListViewItem">
+                                            <Border Padding="8,6"
+                                                    BorderBrush="{StaticResource BorderBrush}"
+                                                    BorderThickness="0,0,0,1">
+                                                <ContentPresenter />
+                                            </Border>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListView.ItemContainerStyle>
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel>
+                                    <TextBlock FontSize="12" FontWeight="SemiBold"
+                                               Text="{Binding SentAt, StringFormat='{}{0:MM/dd/yyyy h:mm tt}'}" />
+                                    <TextBlock FontSize="11" Foreground="{StaticResource TextSecondaryBrush}">
+                                        <Run Text="{Binding OutstandingItemCount, Mode=OneWay}" />
+                                        <Run Text="items sent" />
+                                    </TextBlock>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </DockPanel>
+            </Border>
+        </Grid>
+
+        <!-- Status bar -->
+        <Border Grid.Row="3" Background="{StaticResource LightGrayBrush}" Padding="16,8"
+                BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
+            <TextBlock Text="{Binding StatusMessage}"
+                       Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" />
+        </Border>
+    </Grid>
+</Window>
