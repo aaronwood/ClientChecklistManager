@@ -6,7 +6,7 @@
     <UseWPF>true</UseWPF>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <ApplicationIcon>Resources\app.ico</ApplicationIcon>
+
     <RootNamespace>ClientChecklistManager</RootNamespace>
     <AssemblyName>ClientChecklistManager</AssemblyName>
   </PropertyGroup>
