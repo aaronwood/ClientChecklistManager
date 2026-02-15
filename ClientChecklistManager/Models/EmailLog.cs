@@ -8,4 +8,5 @@ public class EmailLog
     public string Subject { get; set; } = string.Empty;
     public string Body { get; set; } = string.Empty;
     public int OutstandingItemCount { get; set; }
+    public int TaxYear { get; set; } = DateTime.Now.Year;
 }

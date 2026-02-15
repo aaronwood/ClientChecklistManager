@@ -11,10 +11,10 @@ public partial class ClientDetailWindow : Window
 
     public event Action? ClientUpdated;
 
-    public ClientDetailWindow(Client client)
+    public ClientDetailWindow(Client client, int taxYear)
     {
         InitializeComponent();
-        _viewModel = new ClientDetailViewModel(App.Database, client);
+        _viewModel = new ClientDetailViewModel(App.Database, client, taxYear);
         _viewModel.ClientUpdated += () => ClientUpdated?.Invoke();
         _viewModel.RequestClose += () => Close();
         DataContext = _viewModel;

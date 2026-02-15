@@ -22,9 +22,29 @@ public partial class MainWindow : Window
         var freshClient = App.Database.GetClientById(client.Id);
         if (freshClient == null) return;
 
-        var window = new ClientDetailWindow(freshClient);
+        // Show tax year selection dialog
+        var existingYears = App.Database.GetClientTaxYears(freshClient.Id);
+        var dialog = new TaxYearSelectDialog(freshClient.Name, existingYears);
+        dialog.Owner = this;
+        if (dialog.ShowDialog() != true) return;
+        int selectedTaxYear = dialog.SelectedTaxYear;
+
+        var window = new ClientDetailWindow(freshClient, selectedTaxYear);
         window.ClientUpdated += () => _viewModel.LoadClients();
         window.Owner = this;
         window.Show();
+    }
+
+    private void Settings_Click(object sender, RoutedEventArgs e)
+    {
+        var vm = new SettingsViewModel(App.Database);
+        var settingsWindow = new SettingsWindow(vm);
+        settingsWindow.Owner = this;
+        settingsWindow.ShowDialog();
+        if (vm.Saved)
+        {
+            App.ReloadSettings();
+            _viewModel.LoadClients();
+        }
     }
 }

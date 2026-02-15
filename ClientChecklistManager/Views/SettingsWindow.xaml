@@ -1,0 +1,106 @@
+<Window x:Class="ClientChecklistManager.Views.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Settings"
+        Height="580" Width="520"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="White">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0" Background="{StaticResource PrimaryBrush}" Padding="20,14">
+            <TextBlock Text="Settings" Foreground="White" FontSize="18" FontWeight="SemiBold" />
+        </Border>
+
+        <!-- Settings form -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="20,12">
+            <StackPanel>
+
+                <!-- Firm section -->
+                <TextBlock Text="FIRM" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextSecondaryBrush}"
+                           Margin="0,0,0,6" />
+                <TextBlock Text="Firm Name" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,3" />
+                <TextBox Style="{StaticResource StyledTextBox}"
+                         Text="{Binding FirmName, UpdateSourceTrigger=PropertyChanged}"
+                         Margin="0,0,0,16" />
+
+                <!-- Email Account section -->
+                <TextBlock Text="EMAIL" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextSecondaryBrush}"
+                           Margin="0,0,0,6" />
+                <TextBlock Text="Send From Account" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,3" />
+                <ComboBox ItemsSource="{Binding AvailableAccounts}"
+                          SelectedItem="{Binding OutlookFromAccount}"
+                          FontSize="13" Padding="8,6" Margin="0,0,0,10" />
+
+                <TextBlock Text="BCC All Emails To" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,3" />
+                <TextBox Style="{StaticResource StyledTextBox}"
+                         Text="{Binding DefaultBccAddress, UpdateSourceTrigger=PropertyChanged}"
+                         Margin="0,0,0,16" />
+
+                <!-- Subject template -->
+                <TextBlock Text="EMAIL SUBJECT" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextSecondaryBrush}"
+                           Margin="0,0,0,6" />
+                <TextBlock Text="Subject Line Template" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,3" />
+                <TextBox Style="{StaticResource StyledTextBox}"
+                         Text="{Binding EmailSubjectTemplate, UpdateSourceTrigger=PropertyChanged}"
+                         Margin="0,0,0,4" />
+                <TextBlock Text="Placeholders: {ClientName}, {ClientId}, {TaxYear}"
+                           FontSize="10" Foreground="#9CA3AF" FontStyle="Italic" Margin="0,0,0,16" />
+
+                <!-- Email Header -->
+                <TextBlock Text="EMAIL BODY" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextSecondaryBrush}"
+                           Margin="0,0,0,6" />
+                <TextBlock Text="Header (after greeting)" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,3" />
+                <TextBox Style="{StaticResource StyledTextBox}" AcceptsReturn="True" TextWrapping="Wrap"
+                         Height="60" VerticalScrollBarVisibility="Auto"
+                         Text="{Binding EmailHeader, UpdateSourceTrigger=PropertyChanged}"
+                         Margin="0,0,0,10" />
+
+                <!-- Email Footer -->
+                <TextBlock Text="Footer (closing paragraph)" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,3" />
+                <TextBox Style="{StaticResource StyledTextBox}" AcceptsReturn="True" TextWrapping="Wrap"
+                         Height="60" VerticalScrollBarVisibility="Auto"
+                         Text="{Binding EmailFooter, UpdateSourceTrigger=PropertyChanged}"
+                         Margin="0,0,0,4" />
+                <TextBlock Text="Firm name will be appended automatically if set above."
+                           FontSize="10" Foreground="#9CA3AF" FontStyle="Italic" Margin="0,0,0,16" />
+
+                <!-- Workflow section -->
+                <TextBlock Text="WORKFLOW" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextSecondaryBrush}"
+                           Margin="0,0,0,6" />
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <TextBlock Text="Flag clients for follow-up after" FontSize="12"
+                               VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <TextBox Style="{StaticResource StyledTextBox}" Width="50"
+                             Text="{Binding FollowUpReminderDays, UpdateSourceTrigger=PropertyChanged}"
+                             TextAlignment="Center" />
+                    <TextBlock Text="days with no email" FontSize="12"
+                               VerticalAlignment="Center" Margin="6,0,0,0" />
+                </StackPanel>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Bottom buttons -->
+        <Border Grid.Row="2" Background="{StaticResource LightGrayBrush}" Padding="20,12"
+                BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
+            <Grid>
+                <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center"
+                           Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Cancel" Style="{StaticResource SecondaryButton}"
+                            Click="Cancel_Click" Margin="0,0,8,0" />
+                    <Button Content="Save" Style="{StaticResource PrimaryButton}"
+                            Command="{Binding SaveCommand}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

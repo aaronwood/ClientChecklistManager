@@ -7,6 +7,7 @@ namespace ClientChecklistManager.Data;
 public class DatabaseService : IDisposable
 {
     private readonly string _connectionString;
+    private readonly string _dbPath;
     private SqliteConnection? _connection;
 
     public DatabaseService()
@@ -15,8 +16,8 @@ public class DatabaseService : IDisposable
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "ClientChecklistManager");
         Directory.CreateDirectory(appData);
-        var dbPath = Path.Combine(appData, "clients.db");
-        _connectionString = $"Data Source={dbPath}";
+        _dbPath = Path.Combine(appData, "clients.db");
+        _connectionString = $"Data Source={_dbPath}";
     }
 
     private SqliteConnection GetConnection()
@@ -54,6 +55,7 @@ public class DatabaseService : IDisposable
                 ReceivedDate TEXT,
                 Notes TEXT NOT NULL DEFAULT '',
                 SortOrder INTEGER NOT NULL DEFAULT 0,
+                TaxYear INTEGER NOT NULL DEFAULT 2025,
                 CreatedAt TEXT NOT NULL DEFAULT (datetime('now','localtime')),
                 FOREIGN KEY (ClientRowId) REFERENCES Clients(Id) ON DELETE CASCADE
             );
@@ -65,14 +67,92 @@ public class DatabaseService : IDisposable
                 Subject TEXT NOT NULL DEFAULT '',
                 Body TEXT NOT NULL DEFAULT '',
                 OutstandingItemCount INTEGER NOT NULL DEFAULT 0,
+                TaxYear INTEGER NOT NULL DEFAULT 2025,
                 FOREIGN KEY (ClientRowId) REFERENCES Clients(Id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS ChecklistTemplates (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                Name TEXT NOT NULL UNIQUE,
+                CreatedAt TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+            );
+
+            CREATE TABLE IF NOT EXISTS ChecklistTemplateItems (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                TemplateId INTEGER NOT NULL,
+                Description TEXT NOT NULL,
+                SortOrder INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (TemplateId) REFERENCES ChecklistTemplates(Id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS AppSettings (
+                Key TEXT PRIMARY KEY,
+                Value TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS IX_ChecklistItems_ClientRowId ON ChecklistItems(ClientRowId);
+            CREATE INDEX IF NOT EXISTS IX_ChecklistItems_ClientRowId_TaxYear ON ChecklistItems(ClientRowId, TaxYear);
             CREATE INDEX IF NOT EXISTS IX_EmailLogs_ClientRowId ON EmailLogs(ClientRowId);
+            CREATE INDEX IF NOT EXISTS IX_EmailLogs_ClientRowId_TaxYear ON EmailLogs(ClientRowId, TaxYear);
             CREATE INDEX IF NOT EXISTS IX_Clients_ClientId ON Clients(ClientId);
+            CREATE INDEX IF NOT EXISTS IX_ChecklistTemplateItems_TemplateId ON ChecklistTemplateItems(TemplateId);
             """;
         cmd.ExecuteNonQuery();
+
+        // Migration for existing databases
+        RunMigrations(conn);
+    }
+
+    private void RunMigrations(SqliteConnection conn)
+    {
+        using var versionCmd = conn.CreateCommand();
+        versionCmd.CommandText = "PRAGMA user_version;";
+        var schemaVersion = Convert.ToInt32(versionCmd.ExecuteScalar());
+
+        if (schemaVersion < 1)
+        {
+            // Back up the database before migrating
+            if (File.Exists(_dbPath))
+            {
+                var backupPath = _dbPath + ".pre-v1-backup";
+                if (!File.Exists(backupPath))
+                {
+                    // Close and reopen to ensure WAL is checkpointed before copy
+                    using var walCmd = conn.CreateCommand();
+                    walCmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+                    walCmd.ExecuteNonQuery();
+                    File.Copy(_dbPath, backupPath);
+                }
+            }
+
+            // Check if TaxYear column already exists (new installs have it from CREATE TABLE)
+            bool hasTaxYearOnChecklist = ColumnExists(conn, "ChecklistItems", "TaxYear");
+            bool hasTaxYearOnEmailLogs = ColumnExists(conn, "EmailLogs", "TaxYear");
+
+            using var migrateCmd = conn.CreateCommand();
+            var sql = "";
+            if (!hasTaxYearOnChecklist)
+                sql += "ALTER TABLE ChecklistItems ADD COLUMN TaxYear INTEGER NOT NULL DEFAULT 2025;\n";
+            if (!hasTaxYearOnEmailLogs)
+                sql += "ALTER TABLE EmailLogs ADD COLUMN TaxYear INTEGER NOT NULL DEFAULT 2025;\n";
+            sql += "PRAGMA user_version = 1;\n";
+
+            migrateCmd.CommandText = sql;
+            migrateCmd.ExecuteNonQuery();
+        }
+    }
+
+    private static bool ColumnExists(SqliteConnection conn, string table, string column)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"PRAGMA table_info({table});";
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            if (reader.GetString(1).Equals(column, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 
     // ── Client CRUD ──
@@ -178,15 +258,16 @@ public class DatabaseService : IDisposable
 
     // ── Checklist Items ──
 
-    public List<ChecklistItem> GetChecklistItems(int clientRowId)
+    public List<ChecklistItem> GetChecklistItems(int clientRowId, int taxYear)
     {
         var conn = GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT Id, ClientRowId, Description, IsReceived, ReceivedDate, Notes, SortOrder, CreatedAt
-            FROM ChecklistItems WHERE ClientRowId = @crid ORDER BY SortOrder, Id
+            SELECT Id, ClientRowId, Description, IsReceived, ReceivedDate, Notes, SortOrder, CreatedAt, TaxYear
+            FROM ChecklistItems WHERE ClientRowId = @crid AND TaxYear = @ty ORDER BY SortOrder, Id
             """;
         cmd.Parameters.AddWithValue("@crid", clientRowId);
+        cmd.Parameters.AddWithValue("@ty", taxYear);
         using var reader = cmd.ExecuteReader();
         var list = new List<ChecklistItem>();
         while (reader.Read())
@@ -201,8 +282,8 @@ public class DatabaseService : IDisposable
         var conn = GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO ChecklistItems (ClientRowId, Description, IsReceived, ReceivedDate, Notes, SortOrder, CreatedAt)
-            VALUES (@crid, @desc, @recv, @rdate, @notes, @sort, @created);
+            INSERT INTO ChecklistItems (ClientRowId, Description, IsReceived, ReceivedDate, Notes, SortOrder, TaxYear, CreatedAt)
+            VALUES (@crid, @desc, @recv, @rdate, @notes, @sort, @ty, @created);
             SELECT last_insert_rowid();
             """;
         cmd.Parameters.AddWithValue("@crid", item.ClientRowId);
@@ -213,6 +294,7 @@ public class DatabaseService : IDisposable
             : (object)DBNull.Value);
         cmd.Parameters.AddWithValue("@notes", item.Notes);
         cmd.Parameters.AddWithValue("@sort", item.SortOrder);
+        cmd.Parameters.AddWithValue("@ty", item.TaxYear);
         cmd.Parameters.AddWithValue("@created", item.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss"));
         return Convert.ToInt32(cmd.ExecuteScalar());
     }
@@ -246,6 +328,31 @@ public class DatabaseService : IDisposable
         cmd.ExecuteNonQuery();
     }
 
+    public void DeleteChecklistItemsByClientAndYear(int clientRowId, int taxYear)
+    {
+        var conn = GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM ChecklistItems WHERE ClientRowId = @crid AND TaxYear = @ty";
+        cmd.Parameters.AddWithValue("@crid", clientRowId);
+        cmd.Parameters.AddWithValue("@ty", taxYear);
+        cmd.ExecuteNonQuery();
+    }
+
+    public List<int> GetClientTaxYears(int clientRowId)
+    {
+        var conn = GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT DISTINCT TaxYear FROM ChecklistItems WHERE ClientRowId = @crid ORDER BY TaxYear DESC";
+        cmd.Parameters.AddWithValue("@crid", clientRowId);
+        using var reader = cmd.ExecuteReader();
+        var list = new List<int>();
+        while (reader.Read())
+        {
+            list.Add(reader.GetInt32(0));
+        }
+        return list;
+    }
+
     // ── Email Logs ──
 
     public void AddEmailLog(EmailLog log)
@@ -253,26 +360,28 @@ public class DatabaseService : IDisposable
         var conn = GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO EmailLogs (ClientRowId, SentAt, Subject, Body, OutstandingItemCount)
-            VALUES (@crid, @sent, @subj, @body, @count)
+            INSERT INTO EmailLogs (ClientRowId, SentAt, Subject, Body, OutstandingItemCount, TaxYear)
+            VALUES (@crid, @sent, @subj, @body, @count, @ty)
             """;
         cmd.Parameters.AddWithValue("@crid", log.ClientRowId);
         cmd.Parameters.AddWithValue("@sent", log.SentAt.ToString("yyyy-MM-dd HH:mm:ss"));
         cmd.Parameters.AddWithValue("@subj", log.Subject);
         cmd.Parameters.AddWithValue("@body", log.Body);
         cmd.Parameters.AddWithValue("@count", log.OutstandingItemCount);
+        cmd.Parameters.AddWithValue("@ty", log.TaxYear);
         cmd.ExecuteNonQuery();
     }
 
-    public List<EmailLog> GetEmailLogs(int clientRowId)
+    public List<EmailLog> GetEmailLogs(int clientRowId, int taxYear)
     {
         var conn = GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT Id, ClientRowId, SentAt, Subject, Body, OutstandingItemCount
-            FROM EmailLogs WHERE ClientRowId = @crid ORDER BY SentAt DESC
+            SELECT Id, ClientRowId, SentAt, Subject, Body, OutstandingItemCount, TaxYear
+            FROM EmailLogs WHERE ClientRowId = @crid AND TaxYear = @ty ORDER BY SentAt DESC
             """;
         cmd.Parameters.AddWithValue("@crid", clientRowId);
+        cmd.Parameters.AddWithValue("@ty", taxYear);
         using var reader = cmd.ExecuteReader();
         var list = new List<EmailLog>();
         while (reader.Read())
@@ -284,7 +393,8 @@ public class DatabaseService : IDisposable
                 SentAt = DateTime.Parse(reader.GetString(2)),
                 Subject = reader.GetString(3),
                 Body = reader.GetString(4),
-                OutstandingItemCount = reader.GetInt32(5)
+                OutstandingItemCount = reader.GetInt32(5),
+                TaxYear = reader.GetInt32(6)
             });
         }
         return list;
@@ -298,6 +408,156 @@ public class DatabaseService : IDisposable
         cmd.Parameters.AddWithValue("@id", clientRowId);
         cmd.Parameters.AddWithValue("@last", sentAt.ToString("yyyy-MM-dd HH:mm:ss"));
         cmd.ExecuteNonQuery();
+    }
+
+    // ── Templates ──
+
+    public List<ChecklistTemplate> GetAllTemplates()
+    {
+        var conn = GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT Id, Name, CreatedAt FROM ChecklistTemplates ORDER BY Name";
+        using var reader = cmd.ExecuteReader();
+        var list = new List<ChecklistTemplate>();
+        while (reader.Read())
+        {
+            list.Add(new ChecklistTemplate
+            {
+                Id = reader.GetInt32(0),
+                Name = reader.GetString(1),
+                CreatedAt = DateTime.Parse(reader.GetString(2))
+            });
+        }
+        return list;
+    }
+
+    public int AddTemplate(string name)
+    {
+        var conn = GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO ChecklistTemplates (Name) VALUES (@name);
+            SELECT last_insert_rowid();
+            """;
+        cmd.Parameters.AddWithValue("@name", name);
+        return Convert.ToInt32(cmd.ExecuteScalar());
+    }
+
+    public void DeleteTemplate(int templateId)
+    {
+        var conn = GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM ChecklistTemplates WHERE Id = @id";
+        cmd.Parameters.AddWithValue("@id", templateId);
+        cmd.ExecuteNonQuery();
+    }
+
+    public bool TemplateNameExists(string name)
+    {
+        var conn = GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM ChecklistTemplates WHERE Name = @name";
+        cmd.Parameters.AddWithValue("@name", name);
+        return Convert.ToInt64(cmd.ExecuteScalar()) > 0;
+    }
+
+    public List<ChecklistTemplateItem> GetTemplateItems(int templateId)
+    {
+        var conn = GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT Id, TemplateId, Description, SortOrder
+            FROM ChecklistTemplateItems WHERE TemplateId = @tid ORDER BY SortOrder, Id
+            """;
+        cmd.Parameters.AddWithValue("@tid", templateId);
+        using var reader = cmd.ExecuteReader();
+        var list = new List<ChecklistTemplateItem>();
+        while (reader.Read())
+        {
+            list.Add(new ChecklistTemplateItem
+            {
+                Id = reader.GetInt32(0),
+                TemplateId = reader.GetInt32(1),
+                Description = reader.GetString(2),
+                SortOrder = reader.GetInt32(3)
+            });
+        }
+        return list;
+    }
+
+    public void SaveTemplateItems(int templateId, List<string> descriptions)
+    {
+        var conn = GetConnection();
+
+        // Delete existing items
+        using var delCmd = conn.CreateCommand();
+        delCmd.CommandText = "DELETE FROM ChecklistTemplateItems WHERE TemplateId = @tid";
+        delCmd.Parameters.AddWithValue("@tid", templateId);
+        delCmd.ExecuteNonQuery();
+
+        // Insert new items
+        for (int i = 0; i < descriptions.Count; i++)
+        {
+            using var insCmd = conn.CreateCommand();
+            insCmd.CommandText = """
+                INSERT INTO ChecklistTemplateItems (TemplateId, Description, SortOrder)
+                VALUES (@tid, @desc, @sort)
+                """;
+            insCmd.Parameters.AddWithValue("@tid", templateId);
+            insCmd.Parameters.AddWithValue("@desc", descriptions[i]);
+            insCmd.Parameters.AddWithValue("@sort", i);
+            insCmd.ExecuteNonQuery();
+        }
+    }
+
+    // ── App Settings ──
+
+    public string GetSetting(string key, string defaultValue = "")
+    {
+        var conn = GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT Value FROM AppSettings WHERE Key = @key";
+        cmd.Parameters.AddWithValue("@key", key);
+        var result = cmd.ExecuteScalar();
+        return result is string s ? s : defaultValue;
+    }
+
+    public void SetSetting(string key, string value)
+    {
+        var conn = GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO AppSettings (Key, Value) VALUES (@key, @val)
+            ON CONFLICT(Key) DO UPDATE SET Value = @val
+            """;
+        cmd.Parameters.AddWithValue("@key", key);
+        cmd.Parameters.AddWithValue("@val", value);
+        cmd.ExecuteNonQuery();
+    }
+
+    public AppSettings LoadSettings()
+    {
+        return new AppSettings
+        {
+            OutlookFromAccount = GetSetting("OutlookFromAccount"),
+            EmailSubjectTemplate = GetSetting("EmailSubjectTemplate", "Outstanding Items - {ClientName} ({ClientId}) - Tax Year {TaxYear}"),
+            EmailHeader = GetSetting("EmailHeader", "Below is a summary of the outstanding items we are still waiting to receive from you. Please review and provide these at your earliest convenience."),
+            EmailFooter = GetSetting("EmailFooter", "If you have any questions, please don't hesitate to reach out."),
+            DefaultBccAddress = GetSetting("DefaultBccAddress"),
+            FirmName = GetSetting("FirmName"),
+            FollowUpReminderDays = int.TryParse(GetSetting("FollowUpReminderDays", "14"), out var days) ? days : 14
+        };
+    }
+
+    public void SaveSettings(AppSettings settings)
+    {
+        SetSetting("OutlookFromAccount", settings.OutlookFromAccount);
+        SetSetting("EmailSubjectTemplate", settings.EmailSubjectTemplate);
+        SetSetting("EmailHeader", settings.EmailHeader);
+        SetSetting("EmailFooter", settings.EmailFooter);
+        SetSetting("DefaultBccAddress", settings.DefaultBccAddress);
+        SetSetting("FirmName", settings.FirmName);
+        SetSetting("FollowUpReminderDays", settings.FollowUpReminderDays.ToString());
     }
 
     // ── Helpers ──
@@ -321,7 +581,8 @@ public class DatabaseService : IDisposable
         ReceivedDate = reader.IsDBNull(4) ? null : DateTime.Parse(reader.GetString(4)),
         Notes = reader.GetString(5),
         SortOrder = reader.GetInt32(6),
-        CreatedAt = DateTime.Parse(reader.GetString(7))
+        CreatedAt = DateTime.Parse(reader.GetString(7)),
+        TaxYear = reader.GetInt32(8)
     };
 
     public void Dispose()

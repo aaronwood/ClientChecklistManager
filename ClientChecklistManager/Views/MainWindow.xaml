@@ -40,6 +40,7 @@
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="16" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
@@ -71,7 +72,11 @@
                         Style="{StaticResource SecondaryButton}"
                         Command="{Binding RefreshCommand}" />
 
-                <Button Grid.Column="4" Content="+ Add Client"
+                <Button Grid.Column="3" Content="Settings" Margin="8,0,0,0"
+                        Style="{StaticResource SecondaryButton}"
+                        Click="Settings_Click" />
+
+                <Button Grid.Column="5" Content="+ Add Client"
                         Style="{StaticResource PrimaryButton}"
                         Command="{Binding ShowAddClientCommand}" />
             </Grid>
@@ -192,6 +197,15 @@
             </DataGrid.CellStyle>
 
             <DataGrid.Columns>
+                <DataGridTemplateColumn Header="" Width="30">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Ellipse Width="10" Height="10" HorizontalAlignment="Center"
+                                     Fill="{Binding LastEmailed, Converter={StaticResource FollowUpIndicator}}"
+                                     ToolTip="Needs follow-up" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
                 <DataGridTextColumn Header="CLIENT ID" Binding="{Binding ClientId}" Width="140" />
                 <DataGridTextColumn Header="NAME" Binding="{Binding Name}" Width="*" />
                 <DataGridTextColumn Header="EMAIL" Binding="{Binding Email}" Width="*" />

@@ -167,6 +167,9 @@ public class MainViewModel : BaseViewModel
         IsAddingClient = false;
 
         StatusMessage = $"Client \"{client.Name}\" added.";
+
+        // Auto-open the new client with tax year selection
+        OpenClientRequested?.Invoke(client);
     }
 
     private void CancelAdd()

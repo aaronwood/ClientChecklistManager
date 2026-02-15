@@ -5,24 +5,33 @@ namespace ClientChecklistManager.Services;
 public static class EmailComposer
 {
     public static (string Subject, string HtmlBody) ComposeOutstandingItemsEmail(
-        Client client, List<ChecklistItem> outstandingItems)
+        Client client, List<ChecklistItem> outstandingItems, int taxYear, AppSettings settings)
     {
-        var subject = $"Outstanding Items - {client.Name} ({client.ClientId})";
+        var subject = settings.EmailSubjectTemplate
+            .Replace("{ClientName}", client.Name)
+            .Replace("{ClientId}", client.ClientId)
+            .Replace("{TaxYear}", taxYear.ToString());
 
         var itemRows = string.Join("\n",
             outstandingItems.Select((item, i) =>
                 $"<tr><td style='padding:6px 12px;border-bottom:1px solid #eee;'>{i + 1}</td>" +
                 $"<td style='padding:6px 12px;border-bottom:1px solid #eee;'>{System.Net.WebUtility.HtmlEncode(item.Description)}</td></tr>"));
 
+        var closing = "Thank you,";
+        if (!string.IsNullOrWhiteSpace(settings.FirmName))
+        {
+            closing = $"Thank you,<br/>{System.Net.WebUtility.HtmlEncode(settings.FirmName)}";
+        }
+
         var htmlBody = $"""
             <html>
             <body style="font-family: Calibri, Arial, sans-serif; font-size: 14px; color: #333;">
             <p>Dear {System.Net.WebUtility.HtmlEncode(client.Name)},</p>
 
-            <p>Below is a summary of the outstanding items we are still waiting to receive from you.
-            Please review and provide these at your earliest convenience.</p>
+            <p>{System.Net.WebUtility.HtmlEncode(settings.EmailHeader)}</p>
 
             <p><strong>Client ID:</strong> {System.Net.WebUtility.HtmlEncode(client.ClientId)}</p>
+            <p><strong>Tax Year:</strong> {taxYear}</p>
 
             <table style="border-collapse:collapse; width:100%; max-width:600px; margin:12px 0;">
             <thead>
@@ -36,9 +45,9 @@ public static class EmailComposer
             </tbody>
             </table>
 
-            <p>If you have any questions, please don't hesitate to reach out.</p>
+            <p>{System.Net.WebUtility.HtmlEncode(settings.EmailFooter)}</p>
 
-            <p>Thank you,</p>
+            <p>{closing}</p>
             </body>
             </html>
             """;
@@ -46,16 +55,33 @@ public static class EmailComposer
         return (subject, htmlBody);
     }
 
-    public static string ComposePreviewText(Client client, List<ChecklistItem> outstandingItems)
+    public static string ComposePreviewText(Client client, List<ChecklistItem> outstandingItems,
+        int taxYear, AppSettings settings)
     {
+        var subject = settings.EmailSubjectTemplate
+            .Replace("{ClientName}", client.Name)
+            .Replace("{ClientId}", client.ClientId)
+            .Replace("{TaxYear}", taxYear.ToString());
+
+        var closing = "Thank you,";
+        if (!string.IsNullOrWhiteSpace(settings.FirmName))
+        {
+            closing = $"Thank you,\n{settings.FirmName}";
+        }
+
         var lines = new List<string>
         {
             $"To: {client.Email}",
-            $"Subject: Outstanding Items - {client.Name} ({client.ClientId})",
+            $"Subject: {subject}",
             "",
             $"Dear {client.Name},",
             "",
-            "Outstanding items we are waiting to receive:",
+            settings.EmailHeader,
+            "",
+            $"Client ID: {client.ClientId}",
+            $"Tax Year: {taxYear}",
+            "",
+            "Outstanding items:",
             ""
         };
 
@@ -65,9 +91,9 @@ public static class EmailComposer
         }
 
         lines.Add("");
-        lines.Add("If you have any questions, please don't hesitate to reach out.");
+        lines.Add(settings.EmailFooter);
         lines.Add("");
-        lines.Add("Thank you,");
+        lines.Add(closing);
 
         return string.Join(Environment.NewLine, lines);
     }

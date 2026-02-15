@@ -9,5 +9,6 @@ public class ChecklistItem
     public DateTime? ReceivedDate { get; set; }
     public string Notes { get; set; } = string.Empty;
     public int SortOrder { get; set; }
+    public int TaxYear { get; set; } = DateTime.Now.Year;
     public DateTime CreatedAt { get; set; } = DateTime.Now;
 }

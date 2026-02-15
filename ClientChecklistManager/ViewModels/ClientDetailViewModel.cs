@@ -5,6 +5,7 @@ using System.Windows.Threading;
 using ClientChecklistManager.Data;
 using ClientChecklistManager.Models;
 using ClientChecklistManager.Services;
+using ClientChecklistManager.Views;
 
 namespace ClientChecklistManager.ViewModels;
 
@@ -12,6 +13,7 @@ public class ClientDetailViewModel : BaseViewModel
 {
     private readonly DatabaseService _db;
     private readonly DispatcherTimer _autosaveTimer;
+    private readonly int _taxYear;
     private bool _hasPendingChanges;
 
     private Client _client;
@@ -24,10 +26,11 @@ public class ClientDetailViewModel : BaseViewModel
     public event Action? ClientUpdated;
     public event Action? RequestClose;
 
-    public ClientDetailViewModel(DatabaseService db, Client client)
+    public ClientDetailViewModel(DatabaseService db, Client client, int taxYear)
     {
         _db = db;
         _client = client;
+        _taxYear = taxYear;
         _clientId = client.ClientId;
         _name = client.Name;
         _email = client.Email;
@@ -40,6 +43,9 @@ public class ClientDetailViewModel : BaseViewModel
         SendEmailCommand = new RelayCommand(SendEmail, () => OutstandingItems.Any());
         PreviewEmailCommand = new RelayCommand(PreviewEmail, () => OutstandingItems.Any());
         DeleteClientCommand = new RelayCommand(DeleteClient);
+        LoadFromTemplateCommand = new RelayCommand(_ => LoadFromTemplate());
+        LoadFromPriorYearCommand = new RelayCommand(_ => LoadFromPriorYear());
+        SaveAsTemplateCommand = new RelayCommand(_ => SaveAsTemplate());
 
         // 450ms debounce autosave
         _autosaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
@@ -55,6 +61,9 @@ public class ClientDetailViewModel : BaseViewModel
 
     // ── Properties ──
 
+    public int TaxYear => _taxYear;
+    public string WindowTitle => $"Client: {_name} - Tax Year {_taxYear}";
+
     public string ClientId
     {
         get => _clientId;
@@ -64,7 +73,14 @@ public class ClientDetailViewModel : BaseViewModel
     public string Name
     {
         get => _name;
-        set { if (SetProperty(ref _name, value)) ScheduleAutosave(); }
+        set
+        {
+            if (SetProperty(ref _name, value))
+            {
+                ScheduleAutosave();
+                OnPropertyChanged(nameof(WindowTitle));
+            }
+        }
     }
 
     public string Email
@@ -105,13 +121,16 @@ public class ClientDetailViewModel : BaseViewModel
     public ICommand SendEmailCommand { get; }
     public ICommand PreviewEmailCommand { get; }
     public ICommand DeleteClientCommand { get; }
+    public ICommand LoadFromTemplateCommand { get; }
+    public ICommand LoadFromPriorYearCommand { get; }
+    public ICommand SaveAsTemplateCommand { get; }
 
     // ── Methods ──
 
     private void LoadChecklist()
     {
         ChecklistItems.Clear();
-        var items = _db.GetChecklistItems(_client.Id);
+        var items = _db.GetChecklistItems(_client.Id, _taxYear);
         foreach (var item in items)
         {
             ChecklistItems.Add(new ChecklistItemViewModel(item, OnChecklistItemChanged));
@@ -122,7 +141,7 @@ public class ClientDetailViewModel : BaseViewModel
     private void LoadEmailLogs()
     {
         EmailLogs.Clear();
-        var logs = _db.GetEmailLogs(_client.Id);
+        var logs = _db.GetEmailLogs(_client.Id, _taxYear);
         foreach (var log in logs)
         {
             EmailLogs.Add(log);
@@ -193,7 +212,8 @@ public class ClientDetailViewModel : BaseViewModel
         {
             ClientRowId = _client.Id,
             Description = NewItemDescription.Trim(),
-            SortOrder = ChecklistItems.Count
+            SortOrder = ChecklistItems.Count,
+            TaxYear = _taxYear
         };
 
         item.Id = _db.AddChecklistItem(item);
@@ -234,8 +254,13 @@ public class ClientDetailViewModel : BaseViewModel
                 return;
             }
 
-            var (subject, htmlBody) = EmailComposer.ComposeOutstandingItemsEmail(_client, outstanding);
-            OutlookService.SendEmail(_client.Email, subject, htmlBody, showPreview: false);
+            var settings = App.Settings;
+            var (subject, htmlBody) = EmailComposer.ComposeOutstandingItemsEmail(_client, outstanding, _taxYear, settings);
+            OutlookService.SendEmail(
+                _client.Email, subject, htmlBody,
+                showPreview: false,
+                fromAccount: string.IsNullOrEmpty(settings.OutlookFromAccount) ? null : settings.OutlookFromAccount,
+                bcc: string.IsNullOrEmpty(settings.DefaultBccAddress) ? null : settings.DefaultBccAddress);
 
             var now = DateTime.Now;
             _db.AddEmailLog(new EmailLog
@@ -244,7 +269,8 @@ public class ClientDetailViewModel : BaseViewModel
                 SentAt = now,
                 Subject = subject,
                 Body = htmlBody,
-                OutstandingItemCount = outstanding.Count
+                OutstandingItemCount = outstanding.Count,
+                TaxYear = _taxYear
             });
             _db.UpdateLastEmailed(_client.Id, now);
             _client.LastEmailed = now;
@@ -274,8 +300,13 @@ public class ClientDetailViewModel : BaseViewModel
                 return;
             }
 
-            var (subject, htmlBody) = EmailComposer.ComposeOutstandingItemsEmail(_client, outstanding);
-            OutlookService.SendEmail(_client.Email, subject, htmlBody, showPreview: true);
+            var settings = App.Settings;
+            var (subject, htmlBody) = EmailComposer.ComposeOutstandingItemsEmail(_client, outstanding, _taxYear, settings);
+            OutlookService.SendEmail(
+                _client.Email, subject, htmlBody,
+                showPreview: true,
+                fromAccount: string.IsNullOrEmpty(settings.OutlookFromAccount) ? null : settings.OutlookFromAccount,
+                bcc: string.IsNullOrEmpty(settings.DefaultBccAddress) ? null : settings.DefaultBccAddress);
             StatusMessage = "Email preview opened in Outlook.";
         }
         catch (Exception ex)
@@ -298,6 +329,151 @@ public class ClientDetailViewModel : BaseViewModel
         _db.DeleteClient(_client.Id);
         ClientUpdated?.Invoke();
         RequestClose?.Invoke();
+    }
+
+    // ── Template & Prior Year Methods ──
+
+    private void LoadFromTemplate()
+    {
+        var vm = new TemplateManagerViewModel(_db);
+        var dialog = new TemplateManagerDialog(vm);
+        if (dialog.ShowDialog() != true || dialog.SelectedTemplateId == null) return;
+
+        var templateItems = _db.GetTemplateItems(dialog.SelectedTemplateId.Value);
+        if (templateItems.Count == 0)
+        {
+            MessageBox.Show("The selected template has no items.", "Empty Template",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        if (!PromptAppendOrReplace()) return;
+
+        foreach (var templateItem in templateItems)
+        {
+            var item = new ChecklistItem
+            {
+                ClientRowId = _client.Id,
+                Description = templateItem.Description,
+                SortOrder = ChecklistItems.Count + templateItem.SortOrder,
+                TaxYear = _taxYear
+            };
+            item.Id = _db.AddChecklistItem(item);
+            ChecklistItems.Add(new ChecklistItemViewModel(item, OnChecklistItemChanged));
+        }
+
+        RefreshCounts();
+        StatusMessage = $"{templateItems.Count} items loaded from template.";
+    }
+
+    private void LoadFromPriorYear()
+    {
+        var existingYears = _db.GetClientTaxYears(_client.Id)
+            .Where(y => y != _taxYear)
+            .OrderByDescending(y => y)
+            .ToList();
+
+        if (existingYears.Count == 0)
+        {
+            MessageBox.Show("No other tax years found for this client.", "Load from Prior Year",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var yearDialog = new TaxYearSelectDialog(_client.Name, existingYears);
+        yearDialog.Title = $"Select Source Year - {_client.Name}";
+        if (yearDialog.ShowDialog() != true) return;
+
+        var sourceYear = yearDialog.SelectedTaxYear;
+        var sourceItems = _db.GetChecklistItems(_client.Id, sourceYear);
+
+        if (sourceItems.Count == 0)
+        {
+            MessageBox.Show($"No items found for tax year {sourceYear}.", "No Items",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        if (!PromptAppendOrReplace()) return;
+
+        foreach (var source in sourceItems)
+        {
+            var item = new ChecklistItem
+            {
+                ClientRowId = _client.Id,
+                Description = source.Description,
+                SortOrder = ChecklistItems.Count + source.SortOrder,
+                TaxYear = _taxYear,
+                IsReceived = false
+            };
+            item.Id = _db.AddChecklistItem(item);
+            ChecklistItems.Add(new ChecklistItemViewModel(item, OnChecklistItemChanged));
+        }
+
+        RefreshCounts();
+        StatusMessage = $"{sourceItems.Count} items loaded from tax year {sourceYear}.";
+    }
+
+    private bool PromptAppendOrReplace()
+    {
+        if (ChecklistItems.Count == 0) return true;
+
+        var result = MessageBox.Show(
+            "Do you want to append the items to the existing checklist?\n\n" +
+            "Click Yes to append, No to replace existing items, or Cancel to abort.",
+            "Append or Replace?",
+            MessageBoxButton.YesNoCancel,
+            MessageBoxImage.Question);
+
+        if (result == MessageBoxResult.Cancel) return false;
+
+        if (result == MessageBoxResult.No)
+        {
+            _db.DeleteChecklistItemsByClientAndYear(_client.Id, _taxYear);
+            ChecklistItems.Clear();
+        }
+
+        return true;
+    }
+
+    private void SaveAsTemplate()
+    {
+        if (ChecklistItems.Count == 0)
+        {
+            MessageBox.Show("There are no items to save as a template.", "No Items",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dialog = new SaveTemplateDialog();
+        if (dialog.ShowDialog() != true) return;
+
+        var name = dialog.TemplateName;
+
+        if (_db.TemplateNameExists(name))
+        {
+            var overwrite = MessageBox.Show(
+                $"A template named \"{name}\" already exists. Overwrite it?",
+                "Template Exists",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+            if (overwrite != MessageBoxResult.Yes) return;
+
+            var templates = _db.GetAllTemplates();
+            var existing = templates.FirstOrDefault(t => t.Name == name);
+            if (existing != null)
+            {
+                var descriptions = ChecklistItems.Select(i => i.Description).ToList();
+                _db.SaveTemplateItems(existing.Id, descriptions);
+                StatusMessage = $"Template \"{name}\" updated with {descriptions.Count} items.";
+                return;
+            }
+        }
+
+        var templateId = _db.AddTemplate(name);
+        var itemDescriptions = ChecklistItems.Select(i => i.Description).ToList();
+        _db.SaveTemplateItems(templateId, itemDescriptions);
+        StatusMessage = $"Template \"{name}\" saved with {itemDescriptions.Count} items.";
     }
 
     public void OnClosing()

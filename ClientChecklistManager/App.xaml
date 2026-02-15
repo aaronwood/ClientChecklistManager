@@ -8,6 +8,7 @@
         <converters:InverseBoolConverter x:Key="InverseBool" />
         <converters:NullToVisibilityConverter x:Key="NullToVisibility" />
         <converters:DateTimeFormatConverter x:Key="DateTimeFormat" />
+        <converters:FollowUpIndicatorConverter x:Key="FollowUpIndicator" />
 
         <!-- Accent color palette -->
         <Color x:Key="PrimaryColor">#2563EB</Color>
