@@ -96,6 +96,8 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="12" />
                         <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="12" />
+                        <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -107,14 +109,19 @@
                     <TextBox Grid.Row="1" Grid.Column="0" Style="{StaticResource StyledTextBox}"
                              Text="{Binding NewClientId, UpdateSourceTrigger=PropertyChanged}" />
 
-                    <TextBlock Grid.Row="0" Grid.Column="2" Text="Name *" FontSize="12"
+                    <TextBlock Grid.Row="0" Grid.Column="2" Text="First Name" FontSize="12"
                                Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4" />
                     <TextBox Grid.Row="1" Grid.Column="2" Style="{StaticResource StyledTextBox}"
-                             Text="{Binding NewClientName, UpdateSourceTrigger=PropertyChanged}" />
+                             Text="{Binding NewClientFirstName, UpdateSourceTrigger=PropertyChanged}" />
 
-                    <TextBlock Grid.Row="0" Grid.Column="4" Text="Email" FontSize="12"
+                    <TextBlock Grid.Row="0" Grid.Column="4" Text="Last Name *" FontSize="12"
                                Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4" />
                     <TextBox Grid.Row="1" Grid.Column="4" Style="{StaticResource StyledTextBox}"
+                             Text="{Binding NewClientLastName, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <TextBlock Grid.Row="0" Grid.Column="6" Text="Email" FontSize="12"
+                               Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                    <TextBox Grid.Row="1" Grid.Column="6" Style="{StaticResource StyledTextBox}"
                              Text="{Binding NewClientEmail, UpdateSourceTrigger=PropertyChanged}" />
                 </Grid>
                 <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
@@ -207,7 +214,8 @@
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
                 <DataGridTextColumn Header="CLIENT ID" Binding="{Binding ClientId}" Width="140" />
-                <DataGridTextColumn Header="NAME" Binding="{Binding Name}" Width="*" />
+                <DataGridTextColumn Header="LAST NAME" Binding="{Binding LastName}" Width="*" />
+                <DataGridTextColumn Header="FIRST NAME" Binding="{Binding FirstName}" Width="*" />
                 <DataGridTextColumn Header="EMAIL" Binding="{Binding Email}" Width="*" />
                 <DataGridTextColumn Header="LAST EMAILED"
                                     Binding="{Binding LastEmailed, Converter={StaticResource DateTimeFormat}}"

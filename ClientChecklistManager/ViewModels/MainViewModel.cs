@@ -11,7 +11,8 @@ public class MainViewModel : BaseViewModel
     private string _searchText = string.Empty;
     private Client? _selectedClient;
     private string _newClientId = string.Empty;
-    private string _newClientName = string.Empty;
+    private string _newClientFirstName = string.Empty;
+    private string _newClientLastName = string.Empty;
     private string _newClientEmail = string.Empty;
     private string _statusMessage = string.Empty;
     private bool _isAddingClient;
@@ -63,10 +64,16 @@ public class MainViewModel : BaseViewModel
         set => SetProperty(ref _newClientId, value);
     }
 
-    public string NewClientName
+    public string NewClientFirstName
     {
-        get => _newClientName;
-        set => SetProperty(ref _newClientName, value);
+        get => _newClientFirstName;
+        set => SetProperty(ref _newClientFirstName, value);
+    }
+
+    public string NewClientLastName
+    {
+        get => _newClientLastName;
+        set => SetProperty(ref _newClientLastName, value);
     }
 
     public string NewClientEmail
@@ -139,9 +146,9 @@ public class MainViewModel : BaseViewModel
             StatusMessage = "Client ID is required.";
             return;
         }
-        if (string.IsNullOrWhiteSpace(NewClientName))
+        if (string.IsNullOrWhiteSpace(NewClientLastName))
         {
-            StatusMessage = "Client Name is required.";
+            StatusMessage = "Last Name is required.";
             return;
         }
         if (_db.ClientIdExists(NewClientId))
@@ -153,7 +160,8 @@ public class MainViewModel : BaseViewModel
         var client = new Client
         {
             ClientId = NewClientId.Trim(),
-            Name = NewClientName.Trim(),
+            FirstName = (NewClientFirstName ?? "").Trim(),
+            LastName = NewClientLastName.Trim(),
             Email = (NewClientEmail ?? "").Trim()
         };
 
@@ -162,11 +170,12 @@ public class MainViewModel : BaseViewModel
         OnPropertyChanged(nameof(ClientCount));
 
         NewClientId = string.Empty;
-        NewClientName = string.Empty;
+        NewClientFirstName = string.Empty;
+        NewClientLastName = string.Empty;
         NewClientEmail = string.Empty;
         IsAddingClient = false;
 
-        StatusMessage = $"Client \"{client.Name}\" added.";
+        StatusMessage = $"Client \"{client.FullName}\" added.";
 
         // Auto-open the new client with tax year selection
         OpenClientRequested?.Invoke(client);
@@ -175,7 +184,8 @@ public class MainViewModel : BaseViewModel
     private void CancelAdd()
     {
         NewClientId = string.Empty;
-        NewClientName = string.Empty;
+        NewClientFirstName = string.Empty;
+        NewClientLastName = string.Empty;
         NewClientEmail = string.Empty;
         IsAddingClient = false;
     }
