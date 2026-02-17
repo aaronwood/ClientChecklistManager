@@ -50,7 +50,7 @@ All items below are implemented and committed on branch `claude/release-v1.2-Wmw
 
 ### Client name split into FirstName / LastName
 - `Client` model has `FirstName`, `LastName`, and computed `FullName` property (old `Name` field kept in DB for backward compat, populated on write)
-- DB migration v2 splits existing `Name` data on first space → FirstName + LastName
+- DB migration v2 splits existing `Name` data: checks for comma first (`LastName, FirstName` or `LastName,FirstName`) and reverses order, then falls back to space split (`FirstName LastName`). After migration, `Name` column is always written as `"FirstName LastName"` via `FullName`.
 - All views updated: MainWindow add panel has 4 fields (Client ID, First Name, Last Name, Email); DataGrid shows LAST NAME and FIRST NAME columns; ClientDetail header/edit fields split
 - Search matches FirstName, LastName, and combined full name
 - Clients sorted by LastName, FirstName
