@@ -5,11 +5,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Run
 
 ```bash
-dotnet build                              # Build the solution
+dotnet build                              # Debug build
 dotnet build --configuration Release      # Release build
 dotnet run --project ClientChecklistManager  # Run the app
-dotnet publish -c Release -r win-x64      # Publish standalone executable
 ```
+
+### Publish (Single Exe Distribution)
+
+Always publish as a self-contained single exe:
+
+```bash
+dotnet publish ClientChecklistManager/ClientChecklistManager.csproj -c Release -r win-x64 -p:PublishSingleFile=true --self-contained true -p:EnableCompressionInSingleFile=true
+```
+
+- Output: `ClientChecklistManager\bin\Release\net8.0-windows\win-x64\publish\ClientChecklistManager_V1.0.exe`
+- `IncludeNativeLibrariesForSelfExtract` is set in the csproj to bundle native DLLs into the single exe
+- The .pdb file is not needed for distribution
+- WPF does NOT support `PublishTrimmed` — do not use it
 
 There are no tests in this project.
 
@@ -17,17 +29,76 @@ There are no tests in this project.
 
 WPF desktop app (.NET 8, C# 12) using **MVVM** with manual constructor injection (no DI container).
 
-**Layer structure:**
-- **Views/** — XAML windows/dialogs with minimal code-behind
-- **ViewModels/** — `BaseViewModel` (INotifyPropertyChanged) + `RelayCommand` (ICommand); each view has a corresponding ViewModel
-- **Models/** — Plain data classes: Client, ChecklistItem, ChecklistTemplate, AppSettings, EmailLog
-- **Data/DatabaseService.cs** — All SQLite access (~600 lines). Single service passed to ViewModels via constructor. Manages schema creation and migrations via `PRAGMA user_version`
-- **Services/** — `OutlookService` (COM Interop for sending email), `EmailComposer` (static HTML email builder)
-- **Converters/** — WPF value converters (BoolToVisibility, InverseBool, NullToVisibility, DateTimeFormat, FollowUpIndicator)
+### Project Structure
 
-**App startup flow:** `App.xaml.cs` OnStartup → initializes DatabaseService → loads AppSettings → opens MainWindow.
+```
+ClientChecklistManager/
+├── App.xaml(.cs)                    # Entry point, global styles/brushes, DB init
+├── Views/
+│   ├── MainWindow.xaml(.cs)         # Client list with search, add, status indicators
+│   ├── ClientDetailWindow.xaml(.cs) # Split pane: checklist (left) + email (right)
+│   ├── SettingsWindow.xaml(.cs)     # Firm info, email config, workflow settings
+│   ├── TaxYearSelectDialog.xaml(.cs)# Tax year picker (shown when opening a client)
+│   ├── TemplateManagerDialog.xaml(.cs) # Two-column template browser with preview
+│   └── SaveTemplateDialog.xaml(.cs) # Name input for saving checklist as template
+├── ViewModels/
+│   ├── BaseViewModel.cs             # INotifyPropertyChanged with SetProperty<T>
+│   ├── RelayCommand.cs              # ICommand with Action + CanExecute
+│   ├── MainViewModel.cs             # Client list, search, add/delete clients
+│   ├── ClientDetailViewModel.cs     # Checklist CRUD, email send, auto-save, templates
+│   ├── ChecklistItemViewModel.cs    # Wraps ChecklistItem for UI binding
+│   ├── SettingsViewModel.cs         # Load/save AppSettings
+│   ├── TaxYearSelectViewModel.cs    # Year selection with existing-year display
+│   └── TemplateManagerViewModel.cs  # Template list, preview, delete
+├── Models/
+│   ├── Client.cs                    # Id, ClientId, Name, Email, LastEmailed, CreatedAt
+│   ├── ChecklistItem.cs             # Description, IsReceived, ReceivedDate, Notes, SortOrder, TaxYear
+│   ├── ChecklistTemplate.cs         # Id, Name, CreatedAt
+│   ├── ChecklistTemplateItem.cs     # TemplateId, Description, SortOrder
+│   ├── EmailLog.cs                  # Subject, Body, SentAt, OutstandingItemCount, TaxYear
+│   └── AppSettings.cs               # Key-value settings (firm name, email config, reminder days)
+├── Data/
+│   └── DatabaseService.cs           # All SQLite access (~600 lines), singleton, schema migrations
+├── Services/
+│   ├── OutlookService.cs            # Static COM Interop: send email, get accounts, check availability
+│   └── EmailComposer.cs             # Static HTML email builder with subject template substitution
+└── Converters/
+    └── BoolToVisibilityConverter.cs  # Also: InverseBool, NullToVisibility, DateTimeFormat, FollowUpIndicator
+```
 
-**Database:** SQLite stored at `%LocalAppData%/ClientChecklistManager/clients.db`. WAL mode enabled, foreign keys with cascading deletes. Tables: Clients, ChecklistItems, ChecklistTemplates, ChecklistTemplateItems, EmailLogs, AppSettings.
+### App Startup Flow
+
+`App.xaml.cs` OnStartup → creates DatabaseService (auto-creates/migrates DB) → loads AppSettings → creates MainViewModel → opens MainWindow
+
+### Database
+
+- **Engine:** SQLite stored at `%LocalAppData%/ClientChecklistManager/clients.db`
+- **Mode:** WAL mode enabled, foreign keys with cascading deletes
+- **Schema version:** Tracked via `PRAGMA user_version` (current: 1), migrations in DatabaseService.RunMigrations()
+- **Migration order:** RunMigrations() runs FIRST in Initialize(), before CREATE TABLE IF NOT EXISTS. This ensures existing databases get ALTER TABLE changes applied before the no-op CREATE statements. Fresh installs (no Clients table) skip migrations entirely.
+- **Migration pattern:** Each version bump is wrapped in a transaction with rollback on failure. PRAGMA user_version is set outside the transaction. Add new migrations as `if (schemaVersion < N) { ... }` blocks.
+- **Tables:**
+  - `Clients` — core client records
+  - `ChecklistItems` — per-client, per-tax-year items (scoped by ClientId + TaxYear)
+  - `ChecklistTemplates` + `ChecklistTemplateItems` — reusable item templates
+  - `EmailLogs` — sent email history per client/year
+  - `AppSettings` — key-value config store
+
+### Key Patterns
+
+- **Auto-save:** ClientDetailViewModel uses a 450ms DispatcherTimer debounce. Property changes → `ScheduleAutosave()` → timer fires → `SaveAll()` writes to DB.
+- **Tax year scoping:** All checklist items and email logs include a TaxYear column. A client can have data across multiple years.
+- **Email flow:** EmailComposer builds HTML (subject template + numbered table of outstanding items) → OutlookService sends via COM Interop (GetActiveObject or new instance). Supports send-from account selection and BCC. Falls back to `mailto:` link (plain text via `ComposePreviewText()`) if classic Outlook is unavailable (e.g., new Outlook app). The mailto fallback truncates at 1500 chars due to URI length limits.
+- **Template system:** Save current checklist as template, load templates or prior-year items into a client (with append/replace choice).
+- **Follow-up indicator:** Red dot on client list when LastEmailed exceeds configurable reminder threshold (default 14 days).
+- **Dialog results:** TaxYearSelectDialog, TemplateManagerDialog return results via properties after ShowDialog().
+
+### UI Design
+
+- **Color palette:** Primary blue (#2563EB), hover (#1D4ED8), grays (#F3F4F6, #D1D5DB)
+- **Button styles:** PrimaryButton (blue), SecondaryButton (gray), DangerButton (red) — defined in App.xaml
+- **Font:** 13px default, Calibri/Arial in emails
+- **Layout:** MainWindow has DataGrid + toolbar; ClientDetailWindow is split-pane (checklist | email)
 
 ## Key Dependencies
 
@@ -41,5 +112,13 @@ WPF desktop app (.NET 8, C# 12) using **MVVM** with manual constructor injection
 - Nullable reference types enabled
 - Implicit usings enabled
 - Two-way data binding with `UpdateSourceTrigger=PropertyChanged`
-- Auto-save with 450ms debounce via DispatcherTimer
-- All checklist data is scoped by tax year
+- ObservableCollection<T> for all UI-bound lists
+- Commands via RelayCommand (not CommunityToolkit's built-in — custom implementation in RelayCommand.cs)
+- All DB access goes through DatabaseService (no direct SQL elsewhere)
+- Views have minimal code-behind; logic lives in ViewModels
+
+## Git
+
+- **Main branch:** `main`
+- **Baseline tag:** `v1.0`
+- **Repo:** https://github.com/aaronwood/ClientChecklistManager

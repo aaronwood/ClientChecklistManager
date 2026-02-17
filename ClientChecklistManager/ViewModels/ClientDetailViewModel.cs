@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
@@ -282,8 +283,11 @@ public class ClientDetailViewModel : BaseViewModel
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Failed to send email:\n{ex.Message}", "Email Error",
-                MessageBoxButton.OK, MessageBoxImage.Error);
+            if (!OfferMailtoFallback(ex, "send email"))
+            {
+                MessageBox.Show($"Failed to send email:\n{ex.Message}", "Email Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
     }
 
@@ -311,9 +315,61 @@ public class ClientDetailViewModel : BaseViewModel
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Failed to open preview:\n{ex.Message}", "Preview Error",
+            if (!OfferMailtoFallback(ex, "open preview"))
+            {
+                MessageBox.Show($"Failed to open preview:\n{ex.Message}", "Preview Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+    }
+
+    /// <summary>
+    /// If the error is an Outlook availability issue, offers to open the email
+    /// in the default mail app via mailto: link. Returns true if handled.
+    /// </summary>
+    private bool OfferMailtoFallback(Exception ex, string action)
+    {
+        if (ex is not InvalidOperationException && ex is not System.Runtime.InteropServices.COMException)
+            return false;
+
+        var result = MessageBox.Show(
+            $"{ex.Message}\n\nWould you like to open this email in your default mail app instead?",
+            "Outlook Unavailable",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (result != MessageBoxResult.Yes)
+            return true;
+
+        try
+        {
+            var outstanding = OutstandingItems.Select(i => i.GetModel()).ToList();
+            var settings = App.Settings;
+            var subject = (settings.EmailSubjectTemplate ?? "Outstanding Items")
+                .Replace("{ClientName}", _client.Name)
+                .Replace("{ClientId}", _client.ClientId)
+                .Replace("{TaxYear}", _taxYear.ToString());
+            var plainBody = EmailComposer.ComposePreviewText(_client, outstanding, _taxYear, settings);
+
+            // mailto: URIs have a practical limit of ~2000 chars
+            const int maxBodyLength = 1500;
+            if (plainBody.Length > maxBodyLength)
+                plainBody = plainBody[..maxBodyLength] + "\n\n[Message truncated — full list has " + outstanding.Count + " items]";
+
+            var mailto = $"mailto:{Uri.EscapeDataString(_client.Email)}" +
+                         $"?subject={Uri.EscapeDataString(subject)}" +
+                         $"&body={Uri.EscapeDataString(plainBody)}";
+
+            Process.Start(new ProcessStartInfo { FileName = mailto, UseShellExecute = true });
+            StatusMessage = "Email opened in default mail app.";
+        }
+        catch (Exception mailtoEx)
+        {
+            MessageBox.Show($"Failed to open default mail app:\n{mailtoEx.Message}", "Email Error",
                 MessageBoxButton.OK, MessageBoxImage.Error);
         }
+
+        return true;
     }
 
     private void DeleteClient()

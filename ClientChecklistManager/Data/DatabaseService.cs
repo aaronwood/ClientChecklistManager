@@ -36,6 +36,12 @@ public class DatabaseService : IDisposable
     public void Initialize()
     {
         var conn = GetConnection();
+
+        // Run migrations FIRST so existing databases get schema changes
+        // before CREATE TABLE IF NOT EXISTS (which is a no-op for existing tables)
+        RunMigrations(conn);
+
+        // Create tables for fresh installs (no-op if tables already exist)
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             CREATE TABLE IF NOT EXISTS Clients (
@@ -98,13 +104,17 @@ public class DatabaseService : IDisposable
             CREATE INDEX IF NOT EXISTS IX_ChecklistTemplateItems_TemplateId ON ChecklistTemplateItems(TemplateId);
             """;
         cmd.ExecuteNonQuery();
-
-        // Migration for existing databases
-        RunMigrations(conn);
     }
 
     private void RunMigrations(SqliteConnection conn)
     {
+        // Check if any tables exist yet (fresh install = no migrations needed)
+        using var tableCheck = conn.CreateCommand();
+        tableCheck.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='Clients';";
+        var hasClients = Convert.ToInt32(tableCheck.ExecuteScalar()) > 0;
+        if (!hasClients)
+            return; // Fresh install — CREATE TABLE block will handle everything
+
         using var versionCmd = conn.CreateCommand();
         versionCmd.CommandText = "PRAGMA user_version;";
         var schemaVersion = Convert.ToInt32(versionCmd.ExecuteScalar());
@@ -112,34 +122,48 @@ public class DatabaseService : IDisposable
         if (schemaVersion < 1)
         {
             // Back up the database before migrating
-            if (File.Exists(_dbPath))
+            var backupPath = _dbPath + $".pre-v1-backup";
+            if (!File.Exists(backupPath))
             {
-                var backupPath = _dbPath + ".pre-v1-backup";
-                if (!File.Exists(backupPath))
-                {
-                    // Close and reopen to ensure WAL is checkpointed before copy
-                    using var walCmd = conn.CreateCommand();
-                    walCmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
-                    walCmd.ExecuteNonQuery();
-                    File.Copy(_dbPath, backupPath);
-                }
+                using var walCmd = conn.CreateCommand();
+                walCmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+                walCmd.ExecuteNonQuery();
+                File.Copy(_dbPath, backupPath);
             }
 
-            // Check if TaxYear column already exists (new installs have it from CREATE TABLE)
-            bool hasTaxYearOnChecklist = ColumnExists(conn, "ChecklistItems", "TaxYear");
-            bool hasTaxYearOnEmailLogs = ColumnExists(conn, "EmailLogs", "TaxYear");
+            using var transaction = conn.BeginTransaction();
+            try
+            {
+                // Add TaxYear columns if missing
+                if (!ColumnExists(conn, "ChecklistItems", "TaxYear"))
+                {
+                    using var cmd = conn.CreateCommand();
+                    cmd.CommandText = "ALTER TABLE ChecklistItems ADD COLUMN TaxYear INTEGER NOT NULL DEFAULT 2025;";
+                    cmd.ExecuteNonQuery();
+                }
+                if (!ColumnExists(conn, "EmailLogs", "TaxYear"))
+                {
+                    using var cmd = conn.CreateCommand();
+                    cmd.CommandText = "ALTER TABLE EmailLogs ADD COLUMN TaxYear INTEGER NOT NULL DEFAULT 2025;";
+                    cmd.ExecuteNonQuery();
+                }
 
-            using var migrateCmd = conn.CreateCommand();
-            var sql = "";
-            if (!hasTaxYearOnChecklist)
-                sql += "ALTER TABLE ChecklistItems ADD COLUMN TaxYear INTEGER NOT NULL DEFAULT 2025;\n";
-            if (!hasTaxYearOnEmailLogs)
-                sql += "ALTER TABLE EmailLogs ADD COLUMN TaxYear INTEGER NOT NULL DEFAULT 2025;\n";
-            sql += "PRAGMA user_version = 1;\n";
+                transaction.Commit();
+            }
+            catch
+            {
+                transaction.Rollback();
+                throw;
+            }
 
-            migrateCmd.CommandText = sql;
-            migrateCmd.ExecuteNonQuery();
+            // Set version outside transaction (PRAGMA can't run inside one)
+            using var verCmd = conn.CreateCommand();
+            verCmd.CommandText = "PRAGMA user_version = 1;";
+            verCmd.ExecuteNonQuery();
         }
+
+        // Future migrations go here:
+        // if (schemaVersion < 2) { ... }
     }
 
     private static bool ColumnExists(SqliteConnection conn, string table, string column)

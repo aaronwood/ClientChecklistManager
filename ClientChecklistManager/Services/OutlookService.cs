@@ -29,7 +29,7 @@ public class OutlookService
             var outlookType = Type.GetTypeFromProgID("Outlook.Application");
             if (outlookType == null)
                 throw new InvalidOperationException(
-                    "Microsoft Outlook is not installed on this computer.");
+                    "Classic desktop Outlook is required but was not found. The new Outlook app is not supported. Please install Microsoft Outlook from Microsoft 365 or Office.");
             return Activator.CreateInstance(outlookType)!;
         }
     }
