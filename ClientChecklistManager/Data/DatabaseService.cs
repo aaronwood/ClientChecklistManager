@@ -178,14 +178,17 @@ public class DatabaseService : IDisposable
             }
 
             // Split existing Name data into FirstName and LastName
+            // Handles "LastName, FirstName", "LastName,FirstName", and "FirstName LastName" formats
             using var splitCmd = conn.CreateCommand();
             splitCmd.CommandText = """
                 UPDATE Clients SET
                     FirstName = CASE
+                        WHEN INSTR(Name, ',') > 0 THEN TRIM(SUBSTR(Name, INSTR(Name, ',') + 1))
                         WHEN INSTR(Name, ' ') > 0 THEN SUBSTR(Name, 1, INSTR(Name, ' ') - 1)
                         ELSE Name
                     END,
                     LastName = CASE
+                        WHEN INSTR(Name, ',') > 0 THEN TRIM(SUBSTR(Name, 1, INSTR(Name, ',') - 1))
                         WHEN INSTR(Name, ' ') > 0 THEN SUBSTR(Name, INSTR(Name, ' ') + 1)
                         ELSE ''
                     END
