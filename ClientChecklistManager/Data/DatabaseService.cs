@@ -47,7 +47,9 @@ public class DatabaseService : IDisposable
             CREATE TABLE IF NOT EXISTS Clients (
                 Id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ClientId TEXT NOT NULL UNIQUE,
-                Name TEXT NOT NULL,
+                Name TEXT NOT NULL DEFAULT '',
+                FirstName TEXT NOT NULL DEFAULT '',
+                LastName TEXT NOT NULL DEFAULT '',
                 Email TEXT NOT NULL DEFAULT '',
                 LastEmailed TEXT,
                 CreatedAt TEXT NOT NULL DEFAULT (datetime('now','localtime'))
@@ -160,10 +162,109 @@ public class DatabaseService : IDisposable
             using var verCmd = conn.CreateCommand();
             verCmd.CommandText = "PRAGMA user_version = 1;";
             verCmd.ExecuteNonQuery();
+
+            schemaVersion = 1;
+        }
+
+        if (schemaVersion < 2)
+        {
+            // Back up the database before migrating
+            var backupPath = _dbPath + ".pre-v2-backup";
+            if (!File.Exists(backupPath))
+            {
+                using var walCmd = conn.CreateCommand();
+                walCmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+                walCmd.ExecuteNonQuery();
+                File.Copy(_dbPath, backupPath);
+            }
+
+            using var transaction2 = conn.BeginTransaction();
+            try
+            {
+                // Add FirstName and LastName columns if they don't exist
+                if (!ColumnExists(conn, "Clients", "FirstName"))
+                {
+                    using var cmd = conn.CreateCommand();
+                    cmd.CommandText = "ALTER TABLE Clients ADD COLUMN FirstName TEXT NOT NULL DEFAULT '';";
+                    cmd.ExecuteNonQuery();
+                }
+                if (!ColumnExists(conn, "Clients", "LastName"))
+                {
+                    using var cmd = conn.CreateCommand();
+                    cmd.CommandText = "ALTER TABLE Clients ADD COLUMN LastName TEXT NOT NULL DEFAULT '';";
+                    cmd.ExecuteNonQuery();
+                }
+
+                // Split existing Name data into FirstName and LastName
+                // Handles "LastName, FirstName", "LastName,FirstName", and "FirstName LastName" formats
+                using var splitCmd = conn.CreateCommand();
+                splitCmd.CommandText = """
+                    UPDATE Clients SET
+                        FirstName = CASE
+                            WHEN INSTR(Name, ',') > 0 THEN TRIM(SUBSTR(Name, INSTR(Name, ',') + 1))
+                            WHEN INSTR(Name, ' ') > 0 THEN SUBSTR(Name, 1, INSTR(Name, ' ') - 1)
+                            ELSE Name
+                        END,
+                        LastName = CASE
+                            WHEN INSTR(Name, ',') > 0 THEN TRIM(SUBSTR(Name, 1, INSTR(Name, ',') - 1))
+                            WHEN INSTR(Name, ' ') > 0 THEN SUBSTR(Name, INSTR(Name, ' ') + 1)
+                            ELSE ''
+                        END
+                    WHERE FirstName = '' AND LastName = '' AND Name != '';
+                    """;
+                splitCmd.ExecuteNonQuery();
+
+                transaction2.Commit();
+            }
+            catch
+            {
+                transaction2.Rollback();
+                throw;
+            }
+
+            // Migrate email settings (outside transaction — uses GetSetting/SetSetting)
+            MigrateEmailSettings();
+
+            using var verCmd2 = conn.CreateCommand();
+            verCmd2.CommandText = "PRAGMA user_version = 2;";
+            verCmd2.ExecuteNonQuery();
         }
 
         // Future migrations go here:
-        // if (schemaVersion < 2) { ... }
+        // if (schemaVersion < 3) { ... }
+    }
+
+    private void MigrateEmailSettings()
+    {
+        // Construct EmailBodyTemplate from old header/footer if body template doesn't exist yet
+        var existingBody = GetSetting("EmailBodyTemplate", "");
+        if (string.IsNullOrEmpty(existingBody))
+        {
+            var header = GetSetting("EmailHeader", "");
+            var footer = GetSetting("EmailFooter", "");
+
+            if (!string.IsNullOrEmpty(header) || !string.IsNullOrEmpty(footer))
+            {
+                var body = "Dear {FirstName},\r\n\r\n";
+                if (!string.IsNullOrEmpty(header))
+                    body += header + "\r\n\r\n";
+                body += "Client ID: {ClientId}\r\nTax Year: {TaxYear}\r\n\r\n";
+                body += "{OutstandingItems}\r\n\r\n";
+                if (!string.IsNullOrEmpty(footer))
+                    body += footer + "\r\n\r\n";
+                body += "Thank you,\r\n{FirmName}";
+
+                SetSetting("EmailBodyTemplate", body);
+            }
+        }
+
+        // Migrate subject template: replace {ClientName} with {FirstName}
+        var subject = GetSetting("EmailSubjectTemplate", "");
+        if (subject.Contains("{ClientName}"))
+        {
+            subject = subject.Replace("{ClientName}", "{FirstName}");
+            SetSetting("EmailSubjectTemplate", subject);
+        }
     }
 
     private static bool ColumnExists(SqliteConnection conn, string table, string column)
@@ -185,7 +286,7 @@ public class DatabaseService : IDisposable
     {
         var conn = GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT Id, ClientId, Name, Email, LastEmailed, CreatedAt FROM Clients ORDER BY Name";
+        cmd.CommandText = "SELECT Id, ClientId, FirstName, LastName, Email, LastEmailed, CreatedAt FROM Clients ORDER BY LastName, FirstName";
         using var reader = cmd.ExecuteReader();
         var list = new List<Client>();
         while (reader.Read())
@@ -200,9 +301,10 @@ public class DatabaseService : IDisposable
         var conn = GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT Id, ClientId, Name, Email, LastEmailed, CreatedAt FROM Clients
-            WHERE ClientId LIKE @q OR Name LIKE @q OR Email LIKE @q
-            ORDER BY Name
+            SELECT Id, ClientId, FirstName, LastName, Email, LastEmailed, CreatedAt FROM Clients
+            WHERE ClientId LIKE @q OR FirstName LIKE @q OR LastName LIKE @q OR Email LIKE @q
+                OR (FirstName || ' ' || LastName) LIKE @q
+            ORDER BY LastName, FirstName
             """;
         cmd.Parameters.AddWithValue("@q", $"%{query}%");
         using var reader = cmd.ExecuteReader();
@@ -218,7 +320,7 @@ public class DatabaseService : IDisposable
     {
         var conn = GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT Id, ClientId, Name, Email, LastEmailed, CreatedAt FROM Clients WHERE Id = @id";
+        cmd.CommandText = "SELECT Id, ClientId, FirstName, LastName, Email, LastEmailed, CreatedAt FROM Clients WHERE Id = @id";
         cmd.Parameters.AddWithValue("@id", id);
         using var reader = cmd.ExecuteReader();
         return reader.Read() ? ReadClient(reader) : null;
@@ -242,12 +344,14 @@ public class DatabaseService : IDisposable
         var conn = GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO Clients (ClientId, Name, Email, CreatedAt)
-            VALUES (@cid, @name, @email, @created);
+            INSERT INTO Clients (ClientId, Name, FirstName, LastName, Email, CreatedAt)
+            VALUES (@cid, @name, @first, @last, @email, @created);
             SELECT last_insert_rowid();
             """;
         cmd.Parameters.AddWithValue("@cid", client.ClientId);
-        cmd.Parameters.AddWithValue("@name", client.Name);
+        cmd.Parameters.AddWithValue("@name", client.FullName);
+        cmd.Parameters.AddWithValue("@first", client.FirstName);
+        cmd.Parameters.AddWithValue("@last", client.LastName);
         cmd.Parameters.AddWithValue("@email", client.Email);
         cmd.Parameters.AddWithValue("@created", client.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss"));
         return Convert.ToInt32(cmd.ExecuteScalar());
@@ -258,14 +362,17 @@ public class DatabaseService : IDisposable
         var conn = GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            UPDATE Clients SET ClientId = @cid, Name = @name, Email = @email, LastEmailed = @last
+            UPDATE Clients SET ClientId = @cid, Name = @name, FirstName = @first, LastName = @last,
+                Email = @email, LastEmailed = @last_emailed
             WHERE Id = @id
             """;
         cmd.Parameters.AddWithValue("@id", client.Id);
         cmd.Parameters.AddWithValue("@cid", client.ClientId);
-        cmd.Parameters.AddWithValue("@name", client.Name);
+        cmd.Parameters.AddWithValue("@name", client.FullName);
+        cmd.Parameters.AddWithValue("@first", client.FirstName);
+        cmd.Parameters.AddWithValue("@last", client.LastName);
         cmd.Parameters.AddWithValue("@email", client.Email);
-        cmd.Parameters.AddWithValue("@last", client.LastEmailed.HasValue
+        cmd.Parameters.AddWithValue("@last_emailed", client.LastEmailed.HasValue
             ? client.LastEmailed.Value.ToString("yyyy-MM-dd HH:mm:ss")
             : (object)DBNull.Value);
         cmd.ExecuteNonQuery();
@@ -564,9 +671,10 @@ public class DatabaseService : IDisposable
         return new AppSettings
         {
             OutlookFromAccount = GetSetting("OutlookFromAccount"),
-            EmailSubjectTemplate = GetSetting("EmailSubjectTemplate", "Outstanding Items - {ClientName} ({ClientId}) - Tax Year {TaxYear}"),
-            EmailHeader = GetSetting("EmailHeader", "Below is a summary of the outstanding items we are still waiting to receive from you. Please review and provide these at your earliest convenience."),
-            EmailFooter = GetSetting("EmailFooter", "If you have any questions, please don't hesitate to reach out."),
+            EmailSubjectTemplate = GetSetting("EmailSubjectTemplate", AppSettings.DefaultSubjectTemplate),
+            EmailBodyTemplate = GetSetting("EmailBodyTemplate", AppSettings.DefaultBodyTemplate),
+            EmailFontFamily = GetSetting("EmailFontFamily", "Aptos"),
+            EmailFontSize = int.TryParse(GetSetting("EmailFontSize", "11"), out var size) ? size : 11,
             DefaultBccAddress = GetSetting("DefaultBccAddress"),
             FirmName = GetSetting("FirmName"),
             FollowUpReminderDays = int.TryParse(GetSetting("FollowUpReminderDays", "14"), out var days) ? days : 14
@@ -577,8 +685,9 @@ public class DatabaseService : IDisposable
     {
         SetSetting("OutlookFromAccount", settings.OutlookFromAccount);
         SetSetting("EmailSubjectTemplate", settings.EmailSubjectTemplate);
-        SetSetting("EmailHeader", settings.EmailHeader);
-        SetSetting("EmailFooter", settings.EmailFooter);
+        SetSetting("EmailBodyTemplate", settings.EmailBodyTemplate);
+        SetSetting("EmailFontFamily", settings.EmailFontFamily);
+        SetSetting("EmailFontSize", settings.EmailFontSize.ToString());
         SetSetting("DefaultBccAddress", settings.DefaultBccAddress);
         SetSetting("FirmName", settings.FirmName);
         SetSetting("FollowUpReminderDays", settings.FollowUpReminderDays.ToString());
@@ -590,10 +699,11 @@ public class DatabaseService : IDisposable
     {
         Id = reader.GetInt32(0),
         ClientId = reader.GetString(1),
-        Name = reader.GetString(2),
-        Email = reader.GetString(3),
-        LastEmailed = reader.IsDBNull(4) ? null : DateTime.Parse(reader.GetString(4)),
-        CreatedAt = DateTime.Parse(reader.GetString(5))
+        FirstName = reader.GetString(2),
+        LastName = reader.GetString(3),
+        Email = reader.GetString(4),
+        LastEmailed = reader.IsDBNull(5) ? null : DateTime.Parse(reader.GetString(5)),
+        CreatedAt = DateTime.Parse(reader.GetString(6))
     };
 
     private static ChecklistItem ReadChecklistItem(SqliteDataReader reader) => new()

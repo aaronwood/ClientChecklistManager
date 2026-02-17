@@ -24,7 +24,7 @@ public partial class MainWindow : Window
 
         // Show tax year selection dialog
         var existingYears = App.Database.GetClientTaxYears(freshClient.Id);
-        var dialog = new TaxYearSelectDialog(freshClient.Name, existingYears);
+        var dialog = new TaxYearSelectDialog(freshClient.FullName, existingYears);
         dialog.Owner = this;
         if (dialog.ShowDialog() != true) return;
         int selectedTaxYear = dialog.SelectedTaxYear;

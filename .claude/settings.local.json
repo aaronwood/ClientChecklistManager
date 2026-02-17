@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git tag:*)",
+      "Bash(git push:*)",
+      "Bash(dotnet publish:*)",
+      "Bash(dotnet build:*)",
+      "Bash(git fetch:*)",
+      "Bash(git log:*)",
+      "Bash(git branch:*)",
+      "Bash(git merge:*)"
+    ]
+  }
+}

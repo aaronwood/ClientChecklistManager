@@ -8,8 +8,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
 
     <RootNamespace>ClientChecklistManager</RootNamespace>
-    <AssemblyName>ClientChecklistManager_V1.1</AssemblyName>
+    <AssemblyName>ClientChecklistManager_V1.2</AssemblyName>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+
+    <Version>1.2.0</Version>
+    <AssemblyVersion>1.2.0.0</AssemblyVersion>
+    <FileVersion>1.2.0.0</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>

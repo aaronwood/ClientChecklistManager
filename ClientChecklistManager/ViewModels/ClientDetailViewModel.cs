@@ -19,7 +19,8 @@ public class ClientDetailViewModel : BaseViewModel
 
     private Client _client;
     private string _clientId;
-    private string _name;
+    private string _firstName;
+    private string _lastName;
     private string _email;
     private string _newItemDescription = string.Empty;
     private string _statusMessage = string.Empty;
@@ -33,7 +34,8 @@ public class ClientDetailViewModel : BaseViewModel
         _client = client;
         _taxYear = taxYear;
         _clientId = client.ClientId;
-        _name = client.Name;
+        _firstName = client.FirstName;
+        _lastName = client.LastName;
         _email = client.Email;
 
         ChecklistItems = new ObservableCollection<ChecklistItemViewModel>();
@@ -63,7 +65,7 @@ public class ClientDetailViewModel : BaseViewModel
     // ── Properties ──
 
     public int TaxYear => _taxYear;
-    public string WindowTitle => $"Client: {_name} - Tax Year {_taxYear}";
+    public string WindowTitle => $"Client: {_firstName} {_lastName} - Tax Year {_taxYear}".Trim();
 
     public string ClientId
     {
@@ -71,12 +73,25 @@ public class ClientDetailViewModel : BaseViewModel
         set { if (SetProperty(ref _clientId, value)) ScheduleAutosave(); }
     }
 
-    public string Name
+    public string FirstName
     {
-        get => _name;
+        get => _firstName;
         set
         {
-            if (SetProperty(ref _name, value))
+            if (SetProperty(ref _firstName, value))
+            {
+                ScheduleAutosave();
+                OnPropertyChanged(nameof(WindowTitle));
+            }
+        }
+    }
+
+    public string LastName
+    {
+        get => _lastName;
+        set
+        {
+            if (SetProperty(ref _lastName, value))
             {
                 ScheduleAutosave();
                 OnPropertyChanged(nameof(WindowTitle));
@@ -186,7 +201,8 @@ public class ClientDetailViewModel : BaseViewModel
             }
 
             _client.ClientId = _clientId;
-            _client.Name = _name;
+            _client.FirstName = _firstName;
+            _client.LastName = _lastName;
             _client.Email = _email;
             _db.UpdateClient(_client);
 
@@ -346,7 +362,9 @@ public class ClientDetailViewModel : BaseViewModel
             var outstanding = OutstandingItems.Select(i => i.GetModel()).ToList();
             var settings = App.Settings;
             var subject = (settings.EmailSubjectTemplate ?? "Outstanding Items")
-                .Replace("{ClientName}", _client.Name)
+                .Replace("{FirstName}", _client.FirstName)
+                .Replace("{LastName}", _client.LastName)
+                .Replace("{ClientName}", _client.FullName)
                 .Replace("{ClientId}", _client.ClientId)
                 .Replace("{TaxYear}", _taxYear.ToString());
             var plainBody = EmailComposer.ComposePreviewText(_client, outstanding, _taxYear, settings);
@@ -375,7 +393,7 @@ public class ClientDetailViewModel : BaseViewModel
     private void DeleteClient()
     {
         var result = MessageBox.Show(
-            $"Permanently delete client \"{_client.Name}\" ({_client.ClientId}) and all their data?",
+            $"Permanently delete client \"{_client.FullName}\" ({_client.ClientId}) and all their data?",
             "Confirm Delete Client",
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning);
@@ -436,8 +454,8 @@ public class ClientDetailViewModel : BaseViewModel
             return;
         }
 
-        var yearDialog = new TaxYearSelectDialog(_client.Name, existingYears);
-        yearDialog.Title = $"Select Source Year - {_client.Name}";
+        var yearDialog = new TaxYearSelectDialog(_client.FullName, existingYears);
+        yearDialog.Title = $"Select Source Year - {_client.FullName}";
         if (yearDialog.ShowDialog() != true) return;
 
         var sourceYear = yearDialog.SelectedTaxYear;

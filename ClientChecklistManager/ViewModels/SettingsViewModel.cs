@@ -12,8 +12,9 @@ public class SettingsViewModel : BaseViewModel
     private string _outlookFromAccount = string.Empty;
     private string _defaultBccAddress = string.Empty;
     private string _emailSubjectTemplate = string.Empty;
-    private string _emailHeader = string.Empty;
-    private string _emailFooter = string.Empty;
+    private string _emailBodyTemplate = string.Empty;
+    private string _emailFontFamily = "Aptos";
+    private int _emailFontSize = 11;
     private int _followUpReminderDays = 14;
     private string _statusMessage = string.Empty;
 
@@ -22,6 +23,26 @@ public class SettingsViewModel : BaseViewModel
         _db = db;
         SaveCommand = new RelayCommand(_ => Save());
         AvailableAccounts = new List<string> { "(Default)" };
+
+        AvailableFonts = new List<string>
+        {
+            "Aptos",
+            "Arial",
+            "Calibri",
+            "Cambria",
+            "Century Gothic",
+            "Consolas",
+            "Courier New",
+            "Georgia",
+            "Lucida Sans",
+            "Segoe UI",
+            "Tahoma",
+            "Times New Roman",
+            "Trebuchet MS",
+            "Verdana"
+        };
+
+        AvailableFontSizes = new List<int> { 8, 9, 10, 11, 12, 14, 16, 18, 20, 24 };
 
         LoadSettings();
         LoadOutlookAccounts();
@@ -53,16 +74,22 @@ public class SettingsViewModel : BaseViewModel
         set => SetProperty(ref _emailSubjectTemplate, value);
     }
 
-    public string EmailHeader
+    public string EmailBodyTemplate
     {
-        get => _emailHeader;
-        set => SetProperty(ref _emailHeader, value);
+        get => _emailBodyTemplate;
+        set => SetProperty(ref _emailBodyTemplate, value);
     }
 
-    public string EmailFooter
+    public string EmailFontFamily
     {
-        get => _emailFooter;
-        set => SetProperty(ref _emailFooter, value);
+        get => _emailFontFamily;
+        set => SetProperty(ref _emailFontFamily, value);
+    }
+
+    public int EmailFontSize
+    {
+        get => _emailFontSize;
+        set => SetProperty(ref _emailFontSize, value);
     }
 
     public int FollowUpReminderDays
@@ -78,6 +105,8 @@ public class SettingsViewModel : BaseViewModel
     }
 
     public List<string> AvailableAccounts { get; }
+    public List<string> AvailableFonts { get; }
+    public List<int> AvailableFontSizes { get; }
     public ICommand SaveCommand { get; }
     public bool Saved { get; private set; }
 
@@ -90,8 +119,9 @@ public class SettingsViewModel : BaseViewModel
         _outlookFromAccount = string.IsNullOrEmpty(settings.OutlookFromAccount) ? "(Default)" : settings.OutlookFromAccount;
         _defaultBccAddress = settings.DefaultBccAddress;
         _emailSubjectTemplate = settings.EmailSubjectTemplate;
-        _emailHeader = settings.EmailHeader;
-        _emailFooter = settings.EmailFooter;
+        _emailBodyTemplate = settings.EmailBodyTemplate;
+        _emailFontFamily = settings.EmailFontFamily;
+        _emailFontSize = settings.EmailFontSize;
         _followUpReminderDays = settings.FollowUpReminderDays;
     }
 
@@ -117,8 +147,9 @@ public class SettingsViewModel : BaseViewModel
             OutlookFromAccount = OutlookFromAccount == "(Default)" ? string.Empty : (OutlookFromAccount ?? string.Empty),
             DefaultBccAddress = DefaultBccAddress ?? string.Empty,
             EmailSubjectTemplate = EmailSubjectTemplate ?? string.Empty,
-            EmailHeader = EmailHeader ?? string.Empty,
-            EmailFooter = EmailFooter ?? string.Empty,
+            EmailBodyTemplate = EmailBodyTemplate ?? string.Empty,
+            EmailFontFamily = EmailFontFamily ?? "Aptos",
+            EmailFontSize = EmailFontSize,
             FollowUpReminderDays = FollowUpReminderDays
         };
 
