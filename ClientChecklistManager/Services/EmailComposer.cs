@@ -22,18 +22,22 @@ public static class EmailComposer
             .Replace("{TaxYear}", taxYear.ToString())
             .Replace("{FirmName}", System.Net.WebUtility.HtmlEncode(settings.FirmName));
 
-        // Convert line breaks to HTML
-        htmlBody = htmlBody.Replace("\r\n", "<br/>\n").Replace("\n", "<br/>\n");
+        // Convert line breaks to HTML: double newlines become paragraph breaks, single newlines become <br/>
+        htmlBody = htmlBody
+            .Replace("\r\n", "\n")               // Normalize to \n
+            .Replace("\n\n", "</p><p>")           // Double newline = paragraph break
+            .Replace("\n", "<br/>\n");            // Single newline = line break
+        htmlBody = "<p>" + htmlBody + "</p>";     // Wrap in paragraph tags
 
-        // Generate outstanding items table and replace tag
-        var itemsHtml = GenerateItemsTable(outstandingItems);
-        htmlBody = htmlBody.Replace("{OutstandingItems}", itemsHtml);
-
-        // Wrap in HTML with configured font
+        // Resolve font settings for use in body and table
         var fontFamily = string.IsNullOrWhiteSpace(settings.EmailFontFamily)
             ? "Aptos, Calibri, Arial, sans-serif"
             : $"{settings.EmailFontFamily}, Calibri, Arial, sans-serif";
         var fontSize = settings.EmailFontSize > 0 ? settings.EmailFontSize : 11;
+
+        // Generate outstanding items table and replace tag
+        var itemsHtml = GenerateItemsTable(outstandingItems, fontFamily, fontSize);
+        htmlBody = htmlBody.Replace("{OutstandingItems}", itemsHtml);
 
         htmlBody = $"""
             <html>
@@ -77,19 +81,25 @@ public static class EmailComposer
             .Replace("{FirmName}", settings.FirmName);
     }
 
-    private static string GenerateItemsTable(List<ChecklistItem> outstandingItems)
+    private static string GenerateItemsTable(List<ChecklistItem> outstandingItems, string fontFamily, int fontSize)
     {
+        // Scale padding proportionally to font size (baseline: 11pt -> 2px/4px vertical, 6px horizontal)
+        var vPad = Math.Max(1, (int)Math.Round(fontSize * 2.0 / 11));
+        var hPad = Math.Max(2, (int)Math.Round(fontSize * 6.0 / 11));
+        var cellPad = $"{vPad}px {hPad}px";
+        var headerPad = $"{vPad + 1}px {hPad}px";
+        var fontStyle = $"font-family:{fontFamily};font-size:{fontSize}pt;";
         var itemRows = string.Join("\n",
             outstandingItems.Select((item, i) =>
-                $"<tr><td style='padding:6px 12px;border-bottom:1px solid #eee;'>{i + 1}</td>" +
-                $"<td style='padding:6px 12px;border-bottom:1px solid #eee;'>{System.Net.WebUtility.HtmlEncode(item.Description)}</td></tr>"));
+                $"<tr><td style='padding:{cellPad};border-bottom:1px solid #eee;{fontStyle}'>{i + 1}</td>" +
+                $"<td style='padding:{cellPad};border-bottom:1px solid #eee;{fontStyle}'>{System.Net.WebUtility.HtmlEncode(item.Description)}</td></tr>"));
 
         return $"""
-            <table style="border-collapse:collapse; width:100%; max-width:600px; margin:12px 0;">
+            <table style="border-collapse:collapse; width:100%; max-width:600px; margin:8px 0;">
             <thead>
             <tr style="background-color:#f5f5f5;">
-                <th style="padding:8px 12px; text-align:left; border-bottom:2px solid #ddd;">#</th>
-                <th style="padding:8px 12px; text-align:left; border-bottom:2px solid #ddd;">Item</th>
+                <th style="padding:{headerPad}; text-align:left; border-bottom:2px solid #ddd;{fontStyle}">#</th>
+                <th style="padding:{headerPad}; text-align:left; border-bottom:2px solid #ddd;{fontStyle}">Item</th>
             </tr>
             </thead>
             <tbody>
